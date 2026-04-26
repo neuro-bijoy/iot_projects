@@ -64,16 +64,10 @@ TaskHandle_t firebaseTaskHandle = NULL;
 void firebaseTask(void * parameter) {
   for (;;) {
     if (firebasePending) {
-      FirebaseJson json;
-      json.set("temperature", (float)sharedTemp);
-      json.set("bpm",         (float)sharedBPM);
-      json.set("spo2",        (float)sharedSpo2);
-
-      if (Firebase.updateNode(fbdo, "/health", json)) {
-        Serial.println("✅ Firebase sent!");
-      } else {
-        Serial.println("❌ Firebase error: " + fbdo.errorReason());
-      }
+     Firebase.setFloat(fbdo, "/temperature", (float)sharedTemp);
+    Firebase.setFloat(fbdo, "/bpm",         (float)sharedBPM);
+    Firebase.setFloat(fbdo, "/spo2",        (float)sharedSpo2);
+    Serial.println("✅ Firebase sent!");
       firebasePending = false;
     }
     vTaskDelay(100 / portTICK_PERIOD_MS); // yield to other tasks
