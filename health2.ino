@@ -1,0 +1,274 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "MAX30100_PulseOximeter.h"
+#include <WiFi.h>
+#include <FirebaseESP32.h>
+
+#define WIFI_SSID "A06"
+#define WIFI_PASSWORD "12345678"
+#define FIREBASE_HOST "getsms-6308e-default-rtdb.firebaseio.com"
+#define FIREBASE_AUTH "AIzaSyBd4zHR4FIAQiip0DKHskPjVsrV49RQYcs"
+
+#define LM35_PIN 35  // GPIO 35
+
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+#define REPORTING_PERIOD_MS 1000
+#define FILTER_SIZE 10
+#define MEASURE_WINDOW 100000
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define SCREEN_ADDRESS 0x3C
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+PulseOximeter pox;
+
+// --- LM35 state ---
+float currentTemp = 0.0;
+unsigned long lastTempRead = 0;      
+unsigned long lastDisplayUpdate = 0;
+
+// --- MAX30100 state ---
+float bpmBuffer[FILTER_SIZE] = {0};
+uint8_t bufferIndex = 0;
+uint32_t tsLastReport = 0;
+
+// --- Display state ---
+enum DisplayMode { SHOW_TEMP, SHOW_SPO2, SHOW_FINAL };
+DisplayMode displayMode = SHOW_TEMP;
+unsigned long startTime = 0;
+unsigned long finalDisplayStart = 0;
+
+// --- Shared data between cores ---
+volatile float sharedTemp = 0.0;
+volatile float sharedBPM  = 0.0;
+volatile float sharedSpo2 = 0.0;
+volatile bool  firebasePending = false;
+
+// --- FreeRTOS task handle ---
+TaskHandle_t firebaseTaskHandle = NULL;
+
+// ============================================================
+// CORE 0 — Firebase Task
+// ============================================================
+void firebaseTask(void * parameter) {
+  for (;;) {
+    if (firebasePending) {
+      Firebase.setFloat(fbdo, "/temperature", (float)sharedTemp);
+      Firebase.setFloat(fbdo, "/bpm",         (float)sharedBPM);
+      Firebase.setFloat(fbdo, "/spo2",        (float)sharedSpo2);
+      Serial.println("✅ Firebase sent!");
+      firebasePending = false;
+    }
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+  }
+}
+
+void onBeatDetected() {
+  Serial.println("Beat detected!");
+}
+
+float getFilteredBPM(float newValue) {
+  bpmBuffer[bufferIndex] = newValue;
+  bufferIndex = (bufferIndex + 1) % FILTER_SIZE;
+
+  float sum = 0;
+  int count = 0;
+  for (int i = 0; i < FILTER_SIZE; i++) {
+    if (bpmBuffer[i] > 40 && bpmBuffer[i] < 180) {
+      sum += bpmBuffer[i];
+      count++;
+    }
+  }
+  return (count == 0) ? 0 : sum / count;
+}
+
+// NEW — reads LM35 with 64 sample average
+float readLM35() {
+  long sum = 0;
+  for (int i = 0; i < 64; i++) {
+    sum += analogRead(LM35_PIN);
+    delayMicroseconds(100); // small gap between each read = less noise
+  }
+  int analogVal = sum / 64;
+  float voltage = analogVal * (3.3 / 4095.0);
+  return voltage * 100.0;
+}
+
+// ============================================================
+// SETUP
+// ============================================================
+void setup() {
+  Serial.begin(115200);
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+  Wire.begin(21, 22);
+
+  // --- WiFi ---
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected!");
+
+  // --- Firebase ---
+  config.host = FIREBASE_HOST;
+  config.signer.tokens.legacy_token = FIREBASE_AUTH;
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+
+  // --- OLED ---
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println("SSD1306 not detected");
+    while (1);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.print("Initializing...");
+  display.display();
+  delay(1000);
+  display.clearDisplay();
+  display.display();
+
+  // --- MAX30100 ---
+  if (!pox.begin()) {
+    Serial.println("MAX30100 not detected");
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.print("MAX30100 Error!");
+    display.display();
+    while (1);
+  }
+  pox.setIRLedCurrent(MAX30100_LED_CURR_11MA);
+  pox.setOnBeatDetectedCallback(onBeatDetected);
+
+  // --- Start Firebase task on Core 0 ---
+  xTaskCreatePinnedToCore(
+    firebaseTask,
+    "FirebaseTask",
+    8192,
+    NULL,
+    1,
+    &firebaseTaskHandle,
+    0
+  );
+
+  startTime = millis();
+}
+
+// ============================================================
+// CORE 1 — Main Loop
+// ============================================================
+void loop() {
+  unsigned long now = millis();
+
+  // ✅ Always first — never blocked
+  pox.update();
+
+  // ✅ Read LM35 every 1 second only — not every loop
+  if (now - lastTempRead >= 1000) {
+    lastTempRead = now;
+    currentTemp = readLM35();
+    Serial.print("Body Temp : ");
+    Serial.print(currentTemp, 2);
+    Serial.println(" C");
+  }
+
+  // --- Final display ---
+  if (displayMode == SHOW_FINAL) {
+    if (now - finalDisplayStart >= 5000) {
+      startTime = millis();
+      displayMode = SHOW_TEMP;
+      display.clearDisplay();
+      display.display();
+    }
+    return;
+  }
+
+  if (now - startTime >= MEASURE_WINDOW) {
+    displayMode = SHOW_FINAL;
+    finalDisplayStart = now;
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setCursor(0, 0); display.print("Body Temp:");
+    display.setTextSize(2);
+    display.setCursor(0, 16); display.print(currentTemp, 2); display.print(" C");
+    display.display();
+    Serial.print("Body Temp = "); Serial.print(currentTemp, 2);
+    Serial.println(" C");
+    return;
+  }
+
+  // --- MAX30100 reporting every 1 second ---
+  if (now - tsLastReport > REPORTING_PERIOD_MS) {
+    float rawBPM = pox.getHeartRate();
+    float filteredBPM = getFilteredBPM(rawBPM);
+    float spo2 = pox.getSpO2();
+    tsLastReport = now;
+
+    Serial.println("======================");
+    Serial.print("Body Temp : ");
+    Serial.print(currentTemp, 2);
+    Serial.println(" C");
+
+    if (filteredBPM < 40 || spo2 < 80) {
+      displayMode = SHOW_TEMP;
+      Serial.println("BPM       : --");
+      Serial.println("SpO2      : --");
+      Serial.println("Place finger properly");
+    } else {
+      displayMode = SHOW_SPO2;
+      Serial.print("BPM       : "); Serial.println(filteredBPM);
+      Serial.print("SpO2      : "); Serial.print(spo2); Serial.println(" %");
+    }
+    Serial.println("======================");
+
+    sharedTemp = currentTemp;
+    sharedBPM  = filteredBPM;
+    sharedSpo2 = spo2;
+  }
+
+  // ✅ OLED updates every 1 second 
+  if (now - lastDisplayUpdate >= 1000) {
+    lastDisplayUpdate = now;
+
+    display.clearDisplay();
+    display.setTextSize(1);
+
+    if (displayMode == SHOW_TEMP) {
+      display.setCursor(0, 0);
+      display.print("Body Temp:");
+      display.setTextSize(2);
+      display.setCursor(0, 16);
+      display.print(currentTemp, 2);
+      display.print(" C");
+    } else if (displayMode == SHOW_SPO2) {
+      float filteredBPM = getFilteredBPM(0);
+      float spo2 = pox.getSpO2();
+      display.setTextSize(2);
+      display.setCursor(0, 0);
+      display.print("BPM:  "); display.print(filteredBPM, 0);
+      display.setTextSize(2);
+      display.setCursor(0, 16);
+      display.print("SpO2: "); display.print(spo2, 0); display.print("%");
+    }
+
+    display.display();
+  }
+
+  // --- Trigger Firebase every 10 seconds ---
+  static unsigned long lastFirebaseSend = 0;
+  if (now - lastFirebaseSend >= 10000 && !firebasePending) {
+    lastFirebaseSend = now;
+    firebasePending = true;
+  }
+}
