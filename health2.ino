@@ -10,7 +10,7 @@
 #define FIREBASE_HOST "getsms-6308e-default-rtdb.firebaseio.com"
 #define FIREBASE_AUTH "AIzaSyBd4zHR4FIAQiip0DKHskPjVsrV49RQYcs"
 
-#define LM35_PIN 35  // GPIO 35
+#define LM35_PIN 35
 
 FirebaseData fbdo;
 FirebaseAuth auth;
@@ -19,6 +19,7 @@ FirebaseConfig config;
 #define REPORTING_PERIOD_MS 1000
 #define FILTER_SIZE 10
 #define MEASURE_WINDOW 100000
+//#define TEMP_TIMEOUT 10000  // 10 seconds no valid reading = alert
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -30,7 +31,11 @@ PulseOximeter pox;
 
 // --- LM35 state ---
 float currentTemp = 0.0;
-unsigned long lastTempRead = 0;      
+unsigned long lastTempRead = 0;
+//unsigned long lastValidTempTime = 0;  
+bool tempSensorOK = false;           
+
+// --- Display update timer ---
 unsigned long lastDisplayUpdate = 0;
 
 // --- MAX30100 state ---
@@ -88,16 +93,23 @@ float getFilteredBPM(float newValue) {
   return (count == 0) ? 0 : sum / count;
 }
 
-// NEW — reads LM35 with 64 sample average
+
 float readLM35() {
   long sum = 0;
-  for (int i = 0; i < 64; i++) {
+  for (int i = 0; i < 256; i++) {
     sum += analogRead(LM35_PIN);
-    delayMicroseconds(100); // small gap between each read = less noise
+    delayMicroseconds(50);
   }
-  int analogVal = sum / 64;
+  float analogVal = sum / 256.0;
+
+  // If analogVal is 0 or maxed out = sensor disconnected
+  if (analogVal < 5 || analogVal > 4090) {
+    return -999; // 
+  }
+
   float voltage = analogVal * (3.3 / 4095.0);
-  return voltage * 100.0;
+  float temp = voltage * 100.0;
+  return temp;
 }
 
 // ============================================================
@@ -163,6 +175,7 @@ void setup() {
   );
 
   startTime = millis();
+  //lastValidTempTime = millis();
 }
 
 // ============================================================
@@ -171,16 +184,37 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  // ✅ Always first — never blocked
+  // ✅ Always first
   pox.update();
 
-  // ✅ Read LM35 every 1 second only — not every loop
+  // ✅ Read LM35 every 1 second
   if (now - lastTempRead >= 1000) {
     lastTempRead = now;
-    currentTemp = readLM35();
-    Serial.print("Body Temp : ");
-    Serial.print(currentTemp, 2);
-    Serial.println(" C");
+    float newTemp = readLM35();
+
+    if (newTemp == -999) {
+      // Sensor physically disconnected
+      tempSensorOK = false;
+      Serial.println("Body Temp : SENSOR ERROR");
+
+    } else {
+      
+      if (!tempSensorOK) {
+       
+        currentTemp = newTemp;
+      } else {
+        currentTemp = (currentTemp * 0.5) + (newTemp * 0.5);
+      }
+      tempSensorOK = true;
+      //lastValidTempTime = now;
+      Serial.print("Body Temp : ");
+      Serial.print(currentTemp, 2);
+      Serial.println(" C");
+    }
+    //if (now - lastValidTempTime >= TEMP_TIMEOUT) {
+      //tempSensorOK = false;
+      //Serial.println("Body Temp : NO READING — CHECK SENSOR");
+    //}
   }
 
   // --- Final display ---
@@ -199,12 +233,17 @@ void loop() {
     finalDisplayStart = now;
     display.clearDisplay();
     display.setTextSize(1);
-    display.setCursor(0, 0); display.print("Body Temp:");
+    display.setCursor(0, 0);
+    display.print("Body Temp:");
     display.setTextSize(2);
-    display.setCursor(0, 16); display.print(currentTemp, 2); display.print(" C");
+    display.setCursor(0, 16);
+    if (tempSensorOK) {
+      display.print(currentTemp, 2);
+      display.print(" C");
+    } else {
+      display.print("ERROR");
+    }
     display.display();
-    Serial.print("Body Temp = "); Serial.print(currentTemp, 2);
-    Serial.println(" C");
     return;
   }
 
@@ -217,8 +256,12 @@ void loop() {
 
     Serial.println("======================");
     Serial.print("Body Temp : ");
-    Serial.print(currentTemp, 2);
-    Serial.println(" C");
+    if (tempSensorOK) {
+      Serial.print(currentTemp, 2);
+      Serial.println(" C");
+    } else {
+      Serial.println("SENSOR ERROR");
+    }
 
     if (filteredBPM < 40 || spo2 < 80) {
       displayMode = SHOW_TEMP;
@@ -232,12 +275,13 @@ void loop() {
     }
     Serial.println("======================");
 
-    sharedTemp = currentTemp;
+    
+    sharedTemp = tempSensorOK ? currentTemp : 0.0;
     sharedBPM  = filteredBPM;
     sharedSpo2 = spo2;
   }
 
-  // ✅ OLED updates every 1 second 
+  // ✅ OLED updates every 1 second only
   if (now - lastDisplayUpdate >= 1000) {
     lastDisplayUpdate = now;
 
@@ -249,8 +293,16 @@ void loop() {
       display.print("Body Temp:");
       display.setTextSize(2);
       display.setCursor(0, 16);
-      display.print(currentTemp, 2);
-      display.print(" C");
+      if (tempSensorOK) {
+        display.print(currentTemp, 2);
+        display.print(" C");
+      } else {
+        
+        display.setTextSize(1);
+        display.setCursor(0, 20);
+        display.print("CHECK SENSOR!");
+      }
+
     } else if (displayMode == SHOW_SPO2) {
       float filteredBPM = getFilteredBPM(0);
       float spo2 = pox.getSpO2();
