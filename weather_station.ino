@@ -21,8 +21,8 @@ float R0 = 0;
 // WiFi & Firebase
 #define WIFI_SSID     "A06"
 #define WIFI_PASSWORD "12345678"
-#define API_KEY       "AIzaSyBd4zHR4FIAQiip0DKHskPjVsrV49RQYcs"
-#define DATABASE_URL  "https://getsms-6308e-default-rtdb.firebaseio.com"
+#define API_KEY       "AIzaSyATEB4hVpO-wEV3fZzZZEsFQQOsC0W6zW8"
+#define DATABASE_URL  "https://saptarshi-70f16-default-rtdb.firebaseio.com"
 
 DHT dht(DHTPIN, DHTTYPE);
 FirebaseData fbdo;
@@ -74,15 +74,11 @@ float getMQ135Ratio() {
 
 String getAirLabel(float ratio) {
   if (ratio < 1.0) return "Clean Air";
-  if (ratio < 2.0) return "Moderate Air";
+  if (ratio < .090) return "Moderate Air";
   return "Polluted Air";
 }
 
-String getAirEmoji(float ratio) {
-  if (ratio < 1.0) return " 😊";
-  if (ratio < 2.0) return " 😐";
-  return " 😷";
-}
+
 
 
 //  MQ135 Calibration-----
@@ -155,7 +151,7 @@ void loop() {
 
   float  aqiRatio  = getMQ135Ratio();
   String airLabel  = getAirLabel(aqiRatio);
-  String airEmoji  = getAirEmoji(aqiRatio);
+
 
   // ── DHT Sanity Check ────────────────────────────────────
   if (isnan(temp) || isnan(hum)) {
@@ -185,7 +181,7 @@ void loop() {
 
   Serial.println("🌫️  Air Quality (MQ135)");
   Serial.print("    → Rs/R0 Ratio: "); Serial.println(aqiRatio, 3);
-  Serial.print("    → "); Serial.print(airLabel); Serial.println(airEmoji);
+  Serial.print("    → "); Serial.print(airLabel); 
 
   Serial.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   Serial.println();
