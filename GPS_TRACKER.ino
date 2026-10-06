@@ -18,8 +18,8 @@ const char* ssid     = "A06";
 const char* password = "12345678";
 
 // ================= Telegram =================
-#define BOTtoken  "8770497499:AAFrziyzmI6RUObOR9nGSnCEj5RpYjNEIbI"
-#define CHAT_ID   "7540009289"
+#define BOTtoken  ""
+#define CHAT_ID   ""
 
 // ROOT CAUSE FIX 1:
 // Reduce client timeout from default (~10s) to 3s
