@@ -15,8 +15,8 @@ MFRC522 rfid(SS_PIN, RST_PIN);
 #define WIFI_SSID     "moupia"
 #define WIFI_PASSWORD "abcdefgh"
 
-#define API_KEY      "AIzaSyBd4zHR4FIAQiip0DKHskPjVsrV49RQYcs"
-#define DATABASE_URL "https://getsms-6308e-default-rtdb.firebaseio.com"
+#define API_KEY      ""
+#define DATABASE_URL ""
 
 FirebaseData fbdo;
 FirebaseAuth auth;
