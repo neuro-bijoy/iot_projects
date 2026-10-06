@@ -21,8 +21,8 @@ float R0 = 0;
 // WiFi & Firebase
 #define WIFI_SSID     "A06"
 #define WIFI_PASSWORD "12345678"
-#define API_KEY       "AIzaSyATEB4hVpO-wEV3fZzZZEsFQQOsC0W6zW8"
-#define DATABASE_URL  "https://saptarshi-70f16-default-rtdb.firebaseio.com"
+#define API_KEY       ""
+#define DATABASE_URL  ""
 
 DHT dht(DHTPIN, DHTTYPE);
 FirebaseData fbdo;
