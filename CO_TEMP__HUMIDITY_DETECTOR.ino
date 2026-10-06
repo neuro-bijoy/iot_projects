@@ -10,8 +10,8 @@
 
 #define WIFI_SSID     "A06"
 #define WIFI_PASSWORD "12345678"
-#define API_KEY       "AIzaSyBd4zHR4FIAQiip0DKHskPjVsrV49RQYcs"
-#define DATABASE_URL  "https://getsms-6308e-default-rtdb.firebaseio.com"
+#define API_KEY       ""
+#define DATABASE_URL  ""
 
 DHT dht(DHTPIN, DHTTYPE);
 FirebaseData fbdo;
