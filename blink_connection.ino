@@ -1,6 +1,6 @@
-#define BLYNK_TEMPLATE_ID "TMPL3497z4EJc"
+#define BLYNK_TEMPLATE_ID ""
 #define BLYNK_TEMPLATE_NAME "Temperature and humidity monitor"
-#define BLYNK_AUTH_TOKEN "k0xu5Vk-hKlF4jQoPlTPuP-xiVWuOb-8"
+#define BLYNK_AUTH_TOKEN ""
 #include <WiFi.h>
 #include <BlynkSimpleEsp32.h>
 #include <DHT.h>
