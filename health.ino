@@ -10,7 +10,7 @@
 #define WIFI_SSID "A06"
 #define WIFI_PASSWORD "12345678"
 #define FIREBASE_HOST "" 
-#define FIREBASE_AUTH "AIzaSyBd4zHR4FIAQiip0DKHskPjVsrV49RQYcs" 
+#define FIREBASE_AUTH "" 
 
 FirebaseData fbdo;
 FirebaseAuth auth;
