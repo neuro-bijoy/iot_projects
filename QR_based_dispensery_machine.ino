@@ -5,8 +5,8 @@
 
 #define WIFI_SSID     "A06"
 #define WIFI_PASSWORD "12345678"
-#define API_KEY       "AIzaSyC4RZYZENDY-YOph0A8eA4KqCGqIZjEmBk"
-#define DATABASE_URL  "https://nisb-fa1a5-default-rtdb.firebaseio.com"
+#define API_KEY       ""
+#define DATABASE_URL  ""
 
 #define ALERT_LED_PIN  2   // Alert LED — glows when payment received
 #define WIFI_LED_PIN   5   // Green WiFi status LED
